@@ -1,0 +1,21 @@
+group 'com.deathhere.scala.examples'
+version '1.0'
+
+apply plugin: 'scala'
+apply plugin: 'application'
+
+sourceCompatibility = 1.7
+
+repositories {
+    mavenCentral()
+}
+
+mainClassName = "com.deathhere.scala.examples.elevatorsystem.Main"
+
+tasks.withType(ScalaCompile) {
+    scalaCompileOptions.useAnt = false
+}
+
+dependencies {
+    compile 'org.scala-lang:scala-library:2.11.6'
+}
