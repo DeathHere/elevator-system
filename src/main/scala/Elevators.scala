@@ -1,8 +1,10 @@
 package com.deathhere.scala.examples.elevatorsystem
 
 import akka.actor.{ActorLogging, ActorRef, Props, Actor}
+import akka.pattern.{ask, pipe}
 
 import scala.collection.mutable
+import scala.concurrent.Future
 
 object Elevators {
   
@@ -151,13 +153,93 @@ class Controller(numElevators: Int, numFloors: Int) extends Actor {
   val elevators = for (i <- 0 until numElevators) yield context.actorOf(Props(classOf[Elevators], i))
 
   // Elevators stored by direction it is heading and floor it is current at (index of array is floor)
-  val goingUp = new Array[List[ActorRef]](numFloors)
-  val goingDown = new Array[List[ActorRef]](numFloors)
-  val done = new Array[List[ActorRef]](numFloors)
+  // queues allow us to rotate elevators so the load is distributed (which may or may not be good.)
+  val goingUp = Array.fill(numFloors)(new mutable.Queue[ActorRef])
+  val goingDown = Array.fill(numFloors)(new mutable.Queue[ActorRef])
+  val done = Array.fill(numFloors)(new mutable.Queue[ActorRef])
+
+  // queue of people waiting for elevators to be available in their direction
+  val pickupQueue = new mutable.Queue[Pickup]
 
   // Initialize 0th floor to have all elevators
-  done(0) = elevators.toList
+  done(0) ++= elevators
   
-  override def receive: Receive = ???
+  override def receive: Receive = {
+    case Status =>
+      val list = for (i <- elevators) yield (i ? Status).mapTo[StatusResponse]
+      pipe(Future.sequence(list)) to sender
+    case p: Pickup =>
+      if (!pickupPeople(p)) pickupQueue enqueue p
+    case Step =>
+      // pickup leftover people then step
+      pickupQueue.dequeueAll(pickupPeople)
+      for (queue <- goingUp) {
+        queue.dequeueAll { j =>
+          j ! Step
+          true
+        }
+      }
+      for (queue <- goingDown) {
+        queue.dequeueAll { j =>
+          j ! Step
+          true
+        }
+      }
+    case StepCompleted(id, floor, dir) =>
+      dir match {
+        case Up =>
+          goingUp(floor) += elevators(id)
+        case Down =>
+          goingDown(floor) += elevators(id)
+        case NoDir =>
+          done(floor) += elevators(id)
+      }
+  }
+
+  def pickupPeople(p: Pickup): Boolean = {
+    getDirection(p.floor, p.target) match {
+      case Up =>
+        var foundElevator = false
+        var currentFloor = p.floor
+        while (!foundElevator && currentFloor < numFloors) {
+          if (goingUp(currentFloor).nonEmpty) {
+            val elevator = goingUp(currentFloor).dequeue()
+            elevator ! p
+            goingUp(currentFloor) enqueue elevator
+            foundElevator = true
+          } else if (done(currentFloor).nonEmpty) {
+            done(currentFloor).dequeue() ! p
+            // empty elevator is not available until it has gotten to the requested person's floor
+            // so we don't add it back
+            foundElevator = true
+          } else {
+            currentFloor += 1
+          }
+        }
+        foundElevator
+      case Down =>
+        var foundElevator = false
+        var currentFloor = p.floor
+        while (!foundElevator && currentFloor >= 0) {
+          if (goingDown(currentFloor).nonEmpty) {
+            val elevator = goingDown(currentFloor).dequeue()
+            elevator ! p
+            goingDown(currentFloor) enqueue elevator
+            foundElevator = true
+          } else if (done(currentFloor).nonEmpty) {
+            done(currentFloor).dequeue() ! p
+            // empty elevator is not available until it has gotten to the requested person's floor
+            // so we don't add it back
+            foundElevator = true
+          } else {
+            currentFloor -= 1
+          }
+        }
+        foundElevator
+      case NoDir =>
+        // Do nothing for these people
+        true
+    }
+  }
 
 }
