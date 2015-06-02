@@ -30,12 +30,50 @@ class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends A
   
   def goingUp: Receive = {
     case Status => sender ! StatusResponse(id, floor, targetFloor)
-    ???
+    case Pickup(from, to) => pickupQueue enqueue Pickup(from, to)
+    case Step =>
+      // Drop people off
+      while (!dropQueue.nonEmpty && dropQueue.head.target == floor) {
+        val dropOff = dropQueue.dequeue()
+      }
+      // Pick people up
+      while (!pickupQueue.nonEmpty && pickupQueue.head.floor == floor) {
+        val pickup = pickupQueue.dequeue()
+        if(pickup.target > targetFloor) targetFloor = pickup.target
+        dropQueue enqueue pickup
+      }
+      // Check completion
+      if(pickupQueue.isEmpty && dropQueue.isEmpty) {
+        sender ! StepCompleted(id, floor, NoDir)
+        context become stayStill
+      } else {
+        floor += 1
+        sender ! StepCompleted(id, floor, Up)
+      }
   }
   
   def goingDown: Receive = {
     case Status => sender ! StatusResponse(id, floor, targetFloor)
-    ???
+    case Pickup(from, to) => pickupQueue enqueue Pickup(from, to)
+    case Step =>
+      // Drop people off
+      while (!dropQueue.nonEmpty && dropQueue.head.target == floor) {
+        val dropOff = dropQueue.dequeue()
+      }
+      // Pick people up
+      while (!pickupQueue.nonEmpty && pickupQueue.head.floor == floor) {
+        val pickup = pickupQueue.dequeue()
+        if(pickup.target < targetFloor) targetFloor = pickup.target
+        dropQueue enqueue pickup
+      }
+      // Check completion
+      if(pickupQueue.isEmpty && dropQueue.isEmpty) {
+        sender ! StepCompleted(id, floor, NoDir)
+        context become stayStill
+      } else {
+        floor -= 1
+        sender ! StepCompleted(id, floor, Down)
+      }
   }
   
   def stayStill: Receive = {
