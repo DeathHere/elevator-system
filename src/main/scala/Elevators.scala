@@ -23,23 +23,40 @@ class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends A
   import Controller._
   import Elevators._
   
-  var queue = new mutable.PriorityQueue[Int]()
+  var queue: mutable.PriorityQueue[Pickup] = _
 
   override def receive: Receive = stayStill
   
   def goingUp: Receive = {
-    case Status => StatusResponse(id, floor, targetFloor)
+    case Status => sender ! StatusResponse(id, floor, targetFloor)
     ???
   }
   
   def goingDown: Receive = {
-    case Status => StatusResponse(id, floor, targetFloor)
+    case Status => sender ! StatusResponse(id, floor, targetFloor)
     ???
   }
   
   def stayStill: Receive = {
-    case Status => StatusResponse(id, floor, targetFloor)
-    case Step => StepCompleted(id, floor, NoDir)
+    case Status => sender ! StatusResponse(id, floor, targetFloor)
+    case Pickup(from, to) =>
+      targetFloor = to
+      getDirection(from, to) match {
+        case Up => queue = new mutable.PriorityQueue[Pickup]()(Ordering.by(- _.floor))
+        case Down => queue = new mutable.PriorityQueue[Pickup]()(Ordering.by(_.floor))
+      }
+      queue enqueue Pickup(from, to)
+      context become emptyLiftMoving
+    case Step => sender ! StepCompleted(id, floor, NoDir)
+    ???
+  }
+
+  def emptyLiftMoving: Receive = {
+    case Status => sender ! StatusResponse(id, floor, targetFloor)
+    case Pickup(from, to) => queue enqueue Pickup(from, to)
+    case Step =>
+
+      sender ! StepCompleted(id, floor, getDirection(floor, targetFloor))
     ???
   }
 }
@@ -63,8 +80,17 @@ object Controller {
 class Controller(numElevators: Int, numFloors: Int) extends Actor {
   import Controller._
   import Elevators._
-  
+
+  // List of elevators we created, to check status
   val elevators = for (i <- 0 until numElevators) yield context.actorOf(Props(classOf[Elevators], 1))
+
+  // Elevators stored by direction it is heading and floor it is current at (index of array is floor)
+  val goingUp = new Array[List[ActorRef]](numFloors)
+  val goingDown = new Array[List[ActorRef]](numFloors)
+  val done = new Array[List[ActorRef]](numFloors)
+
+  // Initialize 0th floor to have all elevators
+  done(0) = elevators.toList
   
   override def receive: Receive = ???
 
