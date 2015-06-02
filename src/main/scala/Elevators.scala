@@ -87,12 +87,14 @@ class Elevators(id: Int, var floor: Int = 0) extends Actor with ActorLogging {
         case Up =>
           pickupQueue = new mutable.PriorityQueue[Pickup]()(Ordering.by(- _.floor))
           dropQueue = new mutable.PriorityQueue[Pickup]()(Ordering.by(- _.target))
+          if (from == floor) context become goingUp
         case Down =>
           pickupQueue = new mutable.PriorityQueue[Pickup]()(Ordering.by(_.floor))
           dropQueue = new mutable.PriorityQueue[Pickup]()(Ordering.by(_.target))
+          if (from == floor) context become goingDown
       }
       pickupQueue enqueue Pickup(from, to)
-      context become emptyLiftMoving
+      if (from != floor) context become emptyLiftMoving
     case Step => sender ! StepCompleted(id, floor, NoDir)
   }
 

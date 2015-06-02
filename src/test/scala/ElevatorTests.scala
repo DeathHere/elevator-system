@@ -84,4 +84,11 @@ class ElevatorTests extends TestKit(ActorSystem("ElevatorTestSystem")) with FunS
     expectMsg(StepCompleted(1, 2, NoDir))
   }
 
+  test("pickup from the same floor") {
+    val elevator = TestActorRef(new Elevators(1, 5))
+    elevator ! Pickup(5, 1)
+    elevator ! Step
+    expectMsg(StepCompleted(1, 4, Down))
+  }
+
 }
