@@ -1,6 +1,6 @@
 package com.deathhere.scala.examples.elevatorsystem
 
-import akka.actor.{ActorRef, Props, Actor}
+import akka.actor.{ActorLogging, ActorRef, Props, Actor}
 
 import scala.collection.mutable
 
@@ -19,9 +19,11 @@ object Elevators {
 
 }
 
-class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends Actor {
+class Elevators(id: Int, var floor: Int = 0) extends Actor with ActorLogging {
   import Controller._
   import Elevators._
+
+  var targetFloor = floor
   
   var pickupQueue: mutable.PriorityQueue[Pickup] = _
   var dropQueue: mutable.PriorityQueue[Pickup] = _
@@ -33,11 +35,11 @@ class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends A
     case Pickup(from, to) => pickupQueue enqueue Pickup(from, to)
     case Step =>
       // Drop people off
-      while (!dropQueue.nonEmpty && dropQueue.head.target == floor) {
+      while (dropQueue.nonEmpty && dropQueue.head.target == floor) {
         val dropOff = dropQueue.dequeue()
       }
       // Pick people up
-      while (!pickupQueue.nonEmpty && pickupQueue.head.floor == floor) {
+      while (pickupQueue.nonEmpty && pickupQueue.head.floor == floor) {
         val pickup = pickupQueue.dequeue()
         if(pickup.target > targetFloor) targetFloor = pickup.target
         dropQueue enqueue pickup
@@ -57,11 +59,11 @@ class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends A
     case Pickup(from, to) => pickupQueue enqueue Pickup(from, to)
     case Step =>
       // Drop people off
-      while (!dropQueue.nonEmpty && dropQueue.head.target == floor) {
+      while (dropQueue.nonEmpty && dropQueue.head.target == floor) {
         val dropOff = dropQueue.dequeue()
       }
       // Pick people up
-      while (!pickupQueue.nonEmpty && pickupQueue.head.floor == floor) {
+      while (pickupQueue.nonEmpty && pickupQueue.head.floor == floor) {
         val pickup = pickupQueue.dequeue()
         if(pickup.target < targetFloor) targetFloor = pickup.target
         dropQueue enqueue pickup
@@ -79,7 +81,8 @@ class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends A
   def stayStill: Receive = {
     case Status => sender ! StatusResponse(id, floor, targetFloor)
     case Pickup(from, to) =>
-      targetFloor = to
+      log.debug("stayStill Picking up Elevator: {}, Floor: {}, Target: {}, {}", id, floor, targetFloor, Pickup(from, to))
+      targetFloor = from
       getDirection(from, to) match {
         case Up =>
           pickupQueue = new mutable.PriorityQueue[Pickup]()(Ordering.by(- _.floor))
@@ -97,6 +100,7 @@ class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends A
     case Status => sender ! StatusResponse(id, floor, targetFloor)
     case Pickup(from, to) => pickupQueue enqueue Pickup(from, to)
     case Step =>
+      log.debug("emptyElevator Stepping Elevator: {}, Floor: {}, Target: {}", id, floor, targetFloor)
       getDirection(floor, targetFloor) match {
         case Up => floor += 1
           if(floor == targetFloor) emptyToStartMoving
@@ -108,11 +112,14 @@ class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends A
 
   def emptyToStartMoving = {
     val pickup: Pickup = pickupQueue.head
-    targetFloor = pickup.target
     val direction = getDirection(pickup.floor, pickup.target)
     direction match {
-      case Up => context become goingUp
-      case Down => context become goingDown
+      case Up =>
+        pickupQueue.foreach { pick => if (pick.target > targetFloor) targetFloor = pick.target }
+        context become goingUp
+      case Down =>
+        pickupQueue.foreach { pick => if (pick.target < targetFloor) targetFloor = pick.target }
+        context become goingDown
     }
     sender ! StepCompleted(id, floor, direction)
   }
@@ -139,7 +146,7 @@ class Controller(numElevators: Int, numFloors: Int) extends Actor {
   import Elevators._
 
   // List of elevators we created, to check status
-  val elevators = for (i <- 0 until numElevators) yield context.actorOf(Props(classOf[Elevators], 1))
+  val elevators = for (i <- 0 until numElevators) yield context.actorOf(Props(classOf[Elevators], i))
 
   // Elevators stored by direction it is heading and floor it is current at (index of array is floor)
   val goingUp = new Array[List[ActorRef]](numFloors)
