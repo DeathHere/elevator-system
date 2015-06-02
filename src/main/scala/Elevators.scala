@@ -23,7 +23,8 @@ class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends A
   import Controller._
   import Elevators._
   
-  var queue: mutable.PriorityQueue[Pickup] = _
+  var pickupQueue: mutable.PriorityQueue[Pickup] = _
+  var dropQueue: mutable.PriorityQueue[Pickup] = _
 
   override def receive: Receive = stayStill
   
@@ -42,22 +43,40 @@ class Elevators(id: Int, var floor: Int = 0, var targetFloor: Int = 0) extends A
     case Pickup(from, to) =>
       targetFloor = to
       getDirection(from, to) match {
-        case Up => queue = new mutable.PriorityQueue[Pickup]()(Ordering.by(- _.floor))
-        case Down => queue = new mutable.PriorityQueue[Pickup]()(Ordering.by(_.floor))
+        case Up =>
+          pickupQueue = new mutable.PriorityQueue[Pickup]()(Ordering.by(- _.floor))
+          dropQueue = new mutable.PriorityQueue[Pickup]()(Ordering.by(- _.target))
+        case Down =>
+          pickupQueue = new mutable.PriorityQueue[Pickup]()(Ordering.by(_.floor))
+          dropQueue = new mutable.PriorityQueue[Pickup]()(Ordering.by(_.target))
       }
-      queue enqueue Pickup(from, to)
+      pickupQueue enqueue Pickup(from, to)
       context become emptyLiftMoving
     case Step => sender ! StepCompleted(id, floor, NoDir)
-    ???
   }
 
   def emptyLiftMoving: Receive = {
     case Status => sender ! StatusResponse(id, floor, targetFloor)
-    case Pickup(from, to) => queue enqueue Pickup(from, to)
+    case Pickup(from, to) => pickupQueue enqueue Pickup(from, to)
     case Step =>
+      getDirection(floor, targetFloor) match {
+        case Up => floor += 1
+          if(floor == targetFloor) emptyToStartMoving
+        case Down => floor -= 1
+          if(floor == targetFloor) emptyToStartMoving
+      }
+      // We don't send a Step Complete unless we are ready for more pickups.
+  }
 
-      sender ! StepCompleted(id, floor, getDirection(floor, targetFloor))
-    ???
+  def emptyToStartMoving = {
+    val pickup: Pickup = pickupQueue.head
+    targetFloor = pickup.target
+    val direction = getDirection(pickup.floor, pickup.target)
+    direction match {
+      case Up => context become goingUp
+      case Down => context become goingDown
+    }
+    sender ! StepCompleted(id, floor, direction)
   }
 }
 
