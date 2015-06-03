@@ -19,8 +19,6 @@ class ControllerTests extends TestKit(ActorSystem("ElevatorTestSystem")) with Fu
 
   test("system picks with 10 floors and 2 elevator, picks up 5 people") {
     val controller = TestActorRef(new Controller(2, 10), "controller")
-    val future = (controller ? Status).mapTo[IndexedSeq[StatusResponse]]
-    Await.result(future, 10 seconds)
 
     controller ! Status
     expectMsg(Vector(StatusResponse(0,0,0), StatusResponse(1,0,0)))
