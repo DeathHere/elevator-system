@@ -217,7 +217,7 @@ class Controller(numElevators: Int, numFloors: Int) extends Actor {
         var distanceFromOrigin = 0
         val maxDistance = Math.max(p.floor, numFloors - p.floor)
 
-        while (!foundElevator && distanceFromOrigin < maxDistance ) {
+        while (!foundElevator && distanceFromOrigin <= maxDistance ) {
 
           val floorUpwards = p.floor + distanceFromOrigin
           val floorDownwards = p.floor - distanceFromOrigin
@@ -247,7 +247,7 @@ class Controller(numElevators: Int, numFloors: Int) extends Actor {
         var distanceFromOrigin = 0
 
         val maxDistance = Math.max(p.floor, numFloors - p.floor)
-        while (!foundElevator && distanceFromOrigin < maxDistance ) {
+        while (!foundElevator && distanceFromOrigin <= maxDistance ) {
 
           val floorUpwards = p.floor + distanceFromOrigin
           val floorDownwards = p.floor - distanceFromOrigin

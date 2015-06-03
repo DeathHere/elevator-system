@@ -18,7 +18,7 @@ class ControllerTests extends TestKit(ActorSystem("ElevatorTestSystem")) with Fu
   implicit val timeout = Timeout(10 seconds)
 
   test("system picks with 10 floors and 2 elevator, picks up 5 people") {
-    val controller = TestActorRef(new Controller(2, 10), "controller")
+    val controller = TestActorRef(new Controller(2, 10))
 
     controller ! Status
     expectMsg(Vector(StatusResponse(0,0,0), StatusResponse(1,0,0)))
@@ -91,6 +91,18 @@ class ControllerTests extends TestKit(ActorSystem("ElevatorTestSystem")) with Fu
     controller ! Step
     controller ! Status
     expectMsg(Vector(StatusResponse(0,6,6), StatusResponse(1,1,1)))
+  }
+
+  test("pickup from furthest floor, 10 floors 2 elevators") {
+    val controller = TestActorRef(new Controller(2, 10))
+
+    controller ! Status
+    expectMsg(Vector(StatusResponse(0,0,0), StatusResponse(1,0,0)))
+
+    controller ! Pickup(9, 1)
+    controller ! Step
+    controller ! Status
+    expectMsg(Vector(StatusResponse(0,1,9), StatusResponse(1,0,0)))
   }
 
 }
