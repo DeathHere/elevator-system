@@ -2,9 +2,11 @@ package com.deathhere.scala.examples.elevatorsystem
 
 import akka.actor.{ActorLogging, ActorRef, Props, Actor}
 import akka.pattern.{ask, pipe}
+import akka.util.Timeout
 
 import scala.collection.mutable
 import scala.concurrent.Future
+import scala.concurrent.duration._
 
 object Elevators {
   
@@ -148,14 +150,16 @@ object Controller {
 class Controller(numElevators: Int, numFloors: Int) extends Actor {
   import Controller._
   import Elevators._
+  import context.dispatcher
 
   // List of elevators we created, to check status
-  val elevators = for (i <- 0 until numElevators) yield context.actorOf(Props(classOf[Elevators], i))
+  val elevators = for (i <- 0 until numElevators) yield context.actorOf(Props(classOf[Elevators], i, 0), name = s"elevator$i")
 
   // Elevators stored by direction it is heading and floor it is current at (index of array is floor)
   // queues allow us to rotate elevators so the load is distributed (which may or may not be good.)
   val goingUp = Array.fill(numFloors)(new mutable.Queue[ActorRef])
   val goingDown = Array.fill(numFloors)(new mutable.Queue[ActorRef])
+  val emptyLiftMoving = new mutable.HashSet[ActorRef]()
   val done = Array.fill(numFloors)(new mutable.Queue[ActorRef])
 
   // queue of people waiting for elevators to be available in their direction
@@ -163,6 +167,8 @@ class Controller(numElevators: Int, numFloors: Int) extends Actor {
 
   // Initialize 0th floor to have all elevators
   done(0) ++= elevators
+
+  implicit val timeout = Timeout(100 seconds)
   
   override def receive: Receive = {
     case Status =>
@@ -173,19 +179,26 @@ class Controller(numElevators: Int, numFloors: Int) extends Actor {
     case Step =>
       // pickup leftover people then step
       pickupQueue.dequeueAll(pickupPeople)
+      // step all going up
       for (queue <- goingUp) {
-        queue.dequeueAll { j =>
-          j ! Step
+        queue.dequeueAll { elevator =>
+          elevator ! Step
           true
         }
       }
+      // step all going down
       for (queue <- goingDown) {
-        queue.dequeueAll { j =>
-          j ! Step
+        queue.dequeueAll { elevator =>
+          elevator ! Step
           true
         }
+      }
+      // step all picking up people
+      for (elevator <- emptyLiftMoving) {
+        elevator ! Step
       }
     case StepCompleted(id, floor, dir) =>
+      emptyLiftMoving remove elevators(id)
       dir match {
         case Up =>
           goingUp(floor) += elevators(id)
@@ -197,42 +210,65 @@ class Controller(numElevators: Int, numFloors: Int) extends Actor {
   }
 
   def pickupPeople(p: Pickup): Boolean = {
+    // Search in 2 directions for "done" elevators and 1 direction for moving ones
     getDirection(p.floor, p.target) match {
       case Up =>
         var foundElevator = false
-        var currentFloor = p.floor
-        while (!foundElevator && currentFloor < numFloors) {
-          if (goingUp(currentFloor).nonEmpty) {
-            val elevator = goingUp(currentFloor).dequeue()
+        var distanceFromOrigin = 0
+        val maxDistance = Math.max(p.floor, numFloors - p.floor)
+
+        while (!foundElevator && distanceFromOrigin < maxDistance ) {
+
+          val floorUpwards = p.floor + distanceFromOrigin
+          val floorDownwards = p.floor - distanceFromOrigin
+
+          if (floorDownwards >= 0 && goingDown(floorDownwards).nonEmpty) {  // look for moving elevators under you
+            val elevator = goingDown(floorDownwards).dequeue()
             elevator ! p
-            goingUp(currentFloor) enqueue elevator
+            goingDown(floorDownwards) enqueue elevator
             foundElevator = true
-          } else if (done(currentFloor).nonEmpty) {
-            done(currentFloor).dequeue() ! p
-            // empty elevator is not available until it has gotten to the requested person's floor
-            // so we don't add it back
+          } else if (floorUpwards < numFloors && done(floorUpwards).nonEmpty) { // look for done elevators above you
+            val elevator = done(floorUpwards).dequeue()
+            elevator ! p
+            emptyLiftMoving += elevator
             foundElevator = true
-          } else {
-            currentFloor += 1
+          } else if (floorDownwards >= 0 && done(floorDownwards).nonEmpty) {  // look for done elevators under you
+            val elevator = done(floorDownwards).dequeue()
+            elevator ! p
+            emptyLiftMoving += elevator
+            foundElevator = true
+          } else { // move further away from the floor to find more
+            distanceFromOrigin += 1
           }
         }
         foundElevator
       case Down =>
         var foundElevator = false
-        var currentFloor = p.floor
-        while (!foundElevator && currentFloor >= 0) {
-          if (goingDown(currentFloor).nonEmpty) {
-            val elevator = goingDown(currentFloor).dequeue()
+        var distanceFromOrigin = 0
+
+        val maxDistance = Math.max(p.floor, numFloors - p.floor)
+        while (!foundElevator && distanceFromOrigin < maxDistance ) {
+
+          val floorUpwards = p.floor + distanceFromOrigin
+          val floorDownwards = p.floor - distanceFromOrigin
+
+          if (floorUpwards < numFloors && goingDown(floorUpwards).nonEmpty) { // look for moving elevators above you
+            val elevator = goingDown(floorUpwards).dequeue()
             elevator ! p
-            goingDown(currentFloor) enqueue elevator
+            goingDown(floorUpwards) enqueue elevator
             foundElevator = true
-          } else if (done(currentFloor).nonEmpty) {
-            done(currentFloor).dequeue() ! p
-            // empty elevator is not available until it has gotten to the requested person's floor
-            // so we don't add it back
+          } else if (floorUpwards < numFloors && done(floorUpwards).nonEmpty) {  // look for done elevators above you
+            val elevator = done(floorUpwards).dequeue()
+            elevator ! p
+            emptyLiftMoving += elevator
             foundElevator = true
-          } else {
-            currentFloor -= 1
+          } else if (floorDownwards >= 0 && done(floorDownwards).nonEmpty) {  // look for done elevators under you
+            val elevator = done(floorDownwards).dequeue()
+            elevator ! p
+            emptyLiftMoving += elevator
+            foundElevator = true
+          } else {  // move further away from the floor to find more
+            distanceFromOrigin += 1
           }
         }
         foundElevator
