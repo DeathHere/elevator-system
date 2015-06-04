@@ -1,6 +1,7 @@
 package com.deathhere.scala.examples.elevatorsystem
 
 import akka.actor.{ActorLogging, ActorRef, Props, Actor}
+import akka.event.LoggingReceive
 import akka.pattern.{ask, pipe}
 import akka.util.Timeout
 
@@ -34,17 +35,19 @@ class Elevators(id: Int, var floor: Int = 0) extends Actor with ActorLogging {
 
   override def receive: Receive = stayStill
   
-  def goingUp: Receive = {
+  def goingUp: Receive = LoggingReceive {
     case Status => sender ! StatusResponse(id, floor, targetFloor)
     case Pickup(from, to) => pickupQueue enqueue Pickup(from, to)
     case Step =>
       // Drop people off
       while (dropQueue.nonEmpty && dropQueue.head.target == floor) {
         val dropOff = dropQueue.dequeue()
+        log.debug("goingUp Dropping off Elevator: {}, Floor: {}, Target: {}, {}", id, floor, targetFloor, dropOff)
       }
       // Pick people up
       while (pickupQueue.nonEmpty && pickupQueue.head.floor == floor) {
         val pickup = pickupQueue.dequeue()
+        log.debug("goingUp Picking up Elevator: {}, Floor: {}, Target: {}, {}", id, floor, targetFloor, pickup)
         if(pickup.target > targetFloor) targetFloor = pickup.target
         dropQueue enqueue pickup
       }
@@ -58,17 +61,19 @@ class Elevators(id: Int, var floor: Int = 0) extends Actor with ActorLogging {
       }
   }
   
-  def goingDown: Receive = {
+  def goingDown: Receive = LoggingReceive {
     case Status => sender ! StatusResponse(id, floor, targetFloor)
     case Pickup(from, to) => pickupQueue enqueue Pickup(from, to)
     case Step =>
       // Drop people off
       while (dropQueue.nonEmpty && dropQueue.head.target == floor) {
         val dropOff = dropQueue.dequeue()
+        log.debug("goingDown Dropping off Elevator: {}, Floor: {}, Target: {}, {}", id, floor, targetFloor, dropOff)
       }
       // Pick people up
       while (pickupQueue.nonEmpty && pickupQueue.head.floor == floor) {
         val pickup = pickupQueue.dequeue()
+        log.debug("goingDown Picking up Elevator: {}, Floor: {}, Target: {}, {}", id, floor, targetFloor, pickup)
         if(pickup.target < targetFloor) targetFloor = pickup.target
         dropQueue enqueue pickup
       }
@@ -82,7 +87,7 @@ class Elevators(id: Int, var floor: Int = 0) extends Actor with ActorLogging {
       }
   }
   
-  def stayStill: Receive = {
+  def stayStill: Receive = LoggingReceive {
     case Status => sender ! StatusResponse(id, floor, targetFloor)
     case Pickup(from, to) =>
       log.debug("stayStill Picking up Elevator: {}, Floor: {}, Target: {}, {}", id, floor, targetFloor, Pickup(from, to))
@@ -102,7 +107,7 @@ class Elevators(id: Int, var floor: Int = 0) extends Actor with ActorLogging {
     case Step => sender ! StepCompleted(id, floor, NoDir)
   }
 
-  def emptyLiftMoving: Receive = {
+  def emptyLiftMoving: Receive = LoggingReceive {
     case Status => sender ! StatusResponse(id, floor, targetFloor)
     case Pickup(from, to) => pickupQueue enqueue Pickup(from, to)
     case Step =>
@@ -147,7 +152,7 @@ object Controller {
 
 }
 
-class Controller(numElevators: Int, numFloors: Int) extends Actor {
+class Controller(numElevators: Int, numFloors: Int) extends Actor with ActorLogging {
   import Controller._
   import Elevators._
   import context.dispatcher
@@ -170,7 +175,7 @@ class Controller(numElevators: Int, numFloors: Int) extends Actor {
 
   implicit val timeout = Timeout(100 seconds)
   
-  override def receive: Receive = {
+  override def receive: Receive = LoggingReceive {
     case Status =>
       val list = for (i <- elevators) yield (i ? Status).mapTo[StatusResponse]
       pipe(Future.sequence(list)) to sender
