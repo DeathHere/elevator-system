@@ -12,6 +12,10 @@ repositories {
 
 mainClassName = "com.deathhere.scala.examples.elevatorsystem.Main"
 
+run {
+    standardInput = System.in
+}
+
 tasks.withType(ScalaCompile) {
     scalaCompileOptions.useAnt = false
 }
